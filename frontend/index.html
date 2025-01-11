@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ECG Dashboard</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <header>
+        <h1>ECG Monitoring Dashboard</h1>
+    </header>
+    <main>
+        <div id="chart-container">
+            <canvas id="ecg-chart"></canvas>
+        </div>
+        <div id="average-output" style="text-align: center; font-size: 1.5rem; margin: 10px;">
+            Average: 0 BPM
+        </div>
+        <div id="data-container">
+            <h2>Real-Time Data</h2>
+            <div id="output"></div>
+        </div>
+    </main>
+    <footer>
+        <p>&copy; 2025 Your Name</p>
+    </footer>
+    <script src="js/app.js"></script>
+</body>
+</html>
