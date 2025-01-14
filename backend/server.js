@@ -1,80 +1,111 @@
-// Import required modules
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const { exec } = require('child_process');
+const multer = require('multer');
+const cors = require('cors'); // لتفعيل CORS
 const WebSocket = require('ws');
-const cors = require('cors'); // Added for CORS support
 
-// Create Express app
+// إعداد Multer لتخزين الملفات المرفوعة في المجلد data مع أسماء فريدة
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, path.join(__dirname, '..', 'data')); // تخزين الملفات في data
+    },
+    filename: (req, file, cb) => {
+        const uniqueName = `${Date.now()}-${file.originalname}`;
+        cb(null, uniqueName);
+    },
+});
+
+const upload = multer({ storage });
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware to parse JSON and enable CORS
-app.use(express.json());
-app.use(cors()); // Enable CORS for all routes
+// تفعيل CORS للسماح بالطلبات من الفرونت إند
+app.use(cors());
 
-// Import and use the router for observations
-const observationsRouter = require('../routes/observations'); // Corrected path
-app.use('/api/observations', observationsRouter);
+// تقديم ملفات الفرونت إند
+const frontendPath = path.join(__dirname, '..', 'frontend');
+app.use(express.static(frontendPath));
 
-// Serve static files for the frontend (if frontend exists)
-app.use(express.static(path.join(__dirname, 'frontend')));
+// استخدام راوت observations.js
+const observationsRoutes = require('../routes/observations');
+app.use('/observations', observationsRoutes);
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-    res.json({ status: 'ok', message: 'Service is running' });
-});
-
-// Create WebSocket server for real-time ECG data streaming
+// إعداد WebSocket
 const wss = new WebSocket.Server({ noServer: true });
 
 wss.on('connection', (ws) => {
     console.log('Client connected to WebSocket');
 
-    // Stream data at 1 reading per second
-    const ecgDataPath = path.join(__dirname, '../output/fhir_observations.json');
-    let intervalId;
+    const jsonFilePath = path.join(__dirname, '..', 'output', 'fhir_observations.json');
+    let data;
 
-    fs.readFile(ecgDataPath, 'utf8', (err, data) => {
-        if (err) {
-            console.error('Error reading file:', err);
-            ws.send(JSON.stringify({ error: 'Unable to read ECG data.' }));
-            return;
+    try {
+        const fileContent = fs.readFileSync(jsonFilePath, 'utf8');
+        data = JSON.parse(fileContent);
+        console.log('Loaded data:', data);
+    } catch (err) {
+        console.error('Error reading JSON file:', err);
+        ws.close();
+        return;
+    }
+
+    let index = 0;
+    const intervalId = setInterval(() => {
+        if (index < data.length) {
+            ws.send(JSON.stringify(data[index]));
+            index++;
+        } else {
+            clearInterval(intervalId);
+            ws.close();
         }
-
-        const ecgData = JSON.parse(data);
-        let index = 0;
-
-        intervalId = setInterval(() => {
-            if (index < ecgData.length) {
-                ws.send(JSON.stringify(ecgData[index]));
-                index++;
-            } else {
-                clearInterval(intervalId);
-                ws.close();
-            }
-        }, 1000); // 1 reading per second
-    });
+    }, 1000);
 
     ws.on('close', () => {
-        console.log('Client disconnected from WebSocket');
+        console.log('Client disconnected');
         clearInterval(intervalId);
     });
 });
 
-// Upgrade HTTP server to handle WebSocket connections
+// API لرفع الملفات ومعالجتها
+app.post('/upload', upload.single('file'), (req, res) => {
+    const filePath = req.file.path; // مسار الملف المرفوع
+
+    // مسار سكريبت Python
+    const scriptPath = path.join(__dirname, '..', 'scripts', 'process_ecg.py');
+
+    // إعداد الأمر لتشغيل السكريبت مع تغليف المسارات
+    const command = `python "${scriptPath}" "${filePath}"`;
+
+    exec(command, { cwd: path.join(__dirname, '..') }, (error, stdout, stderr) => {
+        if (error) {
+            console.error('Error processing file:', stderr);
+            return res.status(500).json({ error: 'Failed to process file' });
+        }
+
+        console.log('Python script output:', stdout);
+
+        // مسار ملف JSON الناتج
+        const outputFilePath = path.join(__dirname, '..', 'output', 'fhir_observations.json');
+        fs.readFile(outputFilePath, 'utf8', (err, data) => {
+            if (err) {
+                console.error('Error reading JSON file:', err);
+                return res.status(500).json({ error: 'Failed to read processed data' });
+            }
+            res.json(JSON.parse(data));
+        });
+    });
+});
+
+// تشغيل الخادم
 const server = app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
 });
 
-server.on('upgrade', (request, socket, head) => {
-    wss.handleUpgrade(request, socket, head, (ws) => {
-        wss.emit('connection', ws, request);
+// إعداد WebSocket عند ترقية الطلبات
+server.on('upgrade', (req, socket, head) => {
+    wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit('connection', ws, req);
     });
-});
-
-// Error handling middleware (must come after all other handlers)
-app.use((err, req, res, next) => {
-    console.error('Error:', err.message);
-    res.status(500).json({ error: 'An internal server error occurred.' });
 });

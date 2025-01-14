@@ -3,18 +3,32 @@ const fs = require('fs');
 const path = require('path');
 
 const router = express.Router();
+const outputDir = path.join(__dirname, '..', 'output');
 
-const jsonFilePath = path.join(__dirname, '..', 'output', 'fhir_observations.json');
-
-
-// Endpoint to serve the JSON data
+// Endpoint لاسترجاع جميع ملفات JSON
 router.get('/', (req, res) => {
-    fs.readFile(jsonFilePath, 'utf8', (err, data) => {
+    fs.readdir(outputDir, (err, files) => {
+        if (err) {
+            console.error('Error reading output directory:', err);
+            return res.status(500).json({ error: 'Failed to list observations' });
+        }
+
+        const observations = files.filter(file => file.endsWith('.json'));
+        res.json(observations);
+    });
+});
+
+// Endpoint لاسترجاع محتوى ملف JSON محدد
+router.get('/:fileName', (req, res) => {
+    const fileName = req.params.fileName;
+    const filePath = path.join(outputDir, fileName);
+
+    fs.readFile(filePath, 'utf8', (err, data) => {
         if (err) {
             console.error('Error reading file:', err);
-            return res.status(500).json({ error: 'Unable to read observations file' });
+            return res.status(404).json({ error: 'File not found' });
         }
-        res.json(JSON.parse(data)); 
+        res.json(JSON.parse(data));
     });
 });
 

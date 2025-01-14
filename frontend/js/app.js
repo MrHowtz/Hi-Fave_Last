@@ -1,81 +1,79 @@
-const socket = new WebSocket('ws://localhost:3000');
+document.getElementById('upload-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fileInput = document.getElementById('file-input');
+    const loadingSpinner = document.getElementById('loading-spinner');
+    const averageOutput = document.getElementById('average-output');
 
-const ctx = document.getElementById('ecg-chart').getContext('2d');
+    if (!fileInput.files.length) {
+        alert('Please select a file!');
+        return;
+    }
 
-// إعداد الرسم البياني لشكل ECG الحقيقي
-const ecgChart = new Chart(ctx, {
-    type: 'line',
-    data: {
-        labels: Array(50).fill(""), // محور X ثابت مع 50 نقطة فارغة
-        datasets: [{
-            label: 'ECG Signal',
-            data: Array(50).fill(0), // 50 نقطة تبدأ بالقيمة 0
-            borderColor: 'rgba(0, 255, 0, 1)',
-            borderWidth: 2,
-            tension: 0.1, // سلاسة الموجة
-        }]
-    },
-    options: {
-        animation: true, // تعطيل الرسوم المتحركة لتسريع التحديث
-        scales: {
-            x: {
-                display: true, // إخفاء المحور الأفقي لتسريع الأداء
-            },
-            y: {
-                title: {
-                    display: true,
-                    text: 'Voltage (mV)'
-                },
-                min: -1,
-                max: 2, // نطاق الجهد لتناسب شكل ECG
-            }
-        },
-        plugins: {
-            legend: {
-                display: true // إخفاء التسمية لتبسيط العرض
-            }
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+
+    loadingSpinner.style.display = 'block';
+    averageOutput.textContent = '';
+
+    try {
+        const response = await fetch('http://localhost:3000/upload', {
+            method: 'POST',
+            body: formData,
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            const average = data.reduce((sum, obs) => sum + obs.valueQuantity.value, 0) / data.length;
+
+            averageOutput.textContent = `Average Value: ${average.toFixed(2)} mV`;
+            updateChart(data);
+        } else {
+            alert('Failed to process file.');
         }
+    } catch (error) {
+        console.error('Error uploading file:', error);
+    } finally {
+        loadingSpinner.style.display = 'none';
     }
 });
 
-// بيانات موجة ECG نموذجية (محاكاة القمم والوديان)
-const ecgTemplate = [0, 0.2, 0.5, -0.1, -0.5, 0, 0.8, 1.5, 0.8, 0.2, 0, -0.2, -0.5, 0, 0.1];
+function updateChart(data) {
+    const chartContainer = d3.select("#chart-container");
+    chartContainer.selectAll("*").remove();
 
-let currentData = Array(50).fill(0); // القيم الحالية المعروضة
-let index = 0;
-let updateInterval = 500; // تحديث الرسم البياني كل 500 مللي ثانية (نصف ثانية)
-let lastUpdateTime = Date.now();
+    const margin = { top: 20, right: 30, bottom: 30, left: 40 };
+    const width = 800 - margin.left - margin.right;
+    const height = 400 - margin.top - margin.bottom;
 
-socket.onopen = () => {
-    console.log('WebSocket connection established');
-};
+    const svg = chartContainer
+        .append("svg")
+        .attr("width", width + margin.left + margin.right)
+        .attr("height", height + margin.top + margin.bottom)
+        .append("g")
+        .attr("transform", `translate(${margin.left},${margin.top})`);
 
-socket.onmessage = (event) => {
-    const currentTime = Date.now();
+    const x = d3.scaleLinear().domain([0, data.length]).range([0, width]);
+    const y = d3.scaleLinear()
+        .domain([
+            d3.min(data, d => d.valueQuantity.value),
+            d3.max(data, d => d.valueQuantity.value),
+        ])
+        .range([height, 0]);
 
-    // تحديث الرسم البياني كل 500 مللي ثانية فقط
-    if (currentTime - lastUpdateTime >= updateInterval) {
-        // محاكاة قيمة جديدة من الموجة النموذجية
-        const simulatedValue = ecgTemplate[index % ecgTemplate.length];
+    svg.append("g")
+        .attr("transform", `translate(0,${height})`)
+        .call(d3.axisBottom(x));
 
-        // تحديث البيانات (نافذة منزلقة)
-        currentData.shift(); // إزالة أول نقطة
-        currentData.push(simulatedValue); // إضافة النقطة الجديدة
+    svg.append("g").call(d3.axisLeft(y));
 
-        // تحديث الرسم البياني
-        ecgChart.data.datasets[0].data = currentData;
-        ecgChart.update();
+    const line = d3.line()
+        .x((_, i) => x(i))
+        .y(d => y(d.valueQuantity.value));
 
-        lastUpdateTime = currentTime; // تحديث وقت آخر تحديث
-    }
-
-    index++;
-};
-
-socket.onerror = (error) => {
-    console.error('WebSocket error:', error);
-};
-
-socket.onclose = () => {
-    console.log('WebSocket connection closed');
-};
+    svg.append("path")
+        .datum(data)
+        .attr("fill", "none")
+        .attr("stroke", "steelblue")
+        .attr("stroke-width", 1.5)
+        .attr("d", line);
+}
