@@ -3,12 +3,20 @@ const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
 const multer = require('multer');
-const cors = require('cors'); // لتفعيل CORS
+const cors = require('cors');
 const WebSocket = require('ws');
+
+const CODESPACE_NAME = process.env.CODESPACE_NAME;
+const PORT = process.env.PORT || 3000;
+
+// Dynamically determine frontend URL
+const FRONTEND_URL = CODESPACE_NAME
+    ? `https://5500-${CODESPACE_NAME}.app.github.dev`
+    : 'http://localhost:5500';
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, path.join(__dirname, '..', 'data')); // تخزين الملفات في data
+        cb(null, path.join(__dirname, '..', 'data'));
     },
     filename: (req, file, cb) => {
         const uniqueName = `${Date.now()}-${file.originalname}`;
@@ -18,9 +26,9 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 const app = express();
-const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+// Enable CORS for frontend URL
+app.use(cors({ origin: FRONTEND_URL }));
 
 const frontendPath = path.join(__dirname, '..', 'frontend');
 app.use(express.static(frontendPath));
@@ -64,7 +72,7 @@ wss.on('connection', (ws) => {
 });
 
 app.post('/upload', upload.single('file'), (req, res) => {
-    const filePath = req.file.path; // مسار الملف المرفوع
+    const filePath = req.file.path;
 
     const scriptPath = path.join(__dirname, '..', 'scripts', 'process_ecg.py');
 
@@ -91,9 +99,13 @@ app.post('/upload', upload.single('file'), (req, res) => {
 
 const server = app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    if (CODESPACE_NAME) {
+        console.log(`Public URL: https://${PORT}-${CODESPACE_NAME}.app.github.dev`);
+    }
+});
 
-server.on('upgrade', (req, socket, head) => {
-    wss.handleUpgrade(req, socket, head, (ws) => {
-        wss.emit('connection', ws, req);
+server.on('upgrade', (request, socket, head) => {
+    wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit('connection', ws, request);
     });
 });
