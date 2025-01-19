@@ -89,10 +89,8 @@ app.post('/upload', upload.single('file'), (req, res) => {
     });
 });
 
-const HOST = '0.0.0.0'; 
-const server = app.listen(PORT, HOST, () => {
-    console.log(`Server running on http://${HOST}:${PORT}`);
-});
+const server = app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
 
 server.on('upgrade', (req, socket, head) => {
     wss.handleUpgrade(req, socket, head, (ws) => {
