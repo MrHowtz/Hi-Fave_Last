@@ -89,8 +89,9 @@ app.post('/upload', upload.single('file'), (req, res) => {
     });
 });
 
-const server = app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+const HOST = '0.0.0.0'; 
+const server = app.listen(PORT, HOST, () => {
+    console.log(`Server running on http://${HOST}:${PORT}`);
 });
 
 server.on('upgrade', (req, socket, head) => {
